@@ -24,6 +24,7 @@ class ScenarioConfig(BaseModel):
 class ExcelExportConfig(BaseModel):
     enable: bool
     file_name: str
+    timestamp: bool = False
 
 class OutputsConfig(BaseModel):
     results_dir: str

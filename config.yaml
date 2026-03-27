@@ -58,3 +58,4 @@ outputs:
   excel_export:
     enable: true
     file_name: "stress_test_dashboard.xlsx"
+    timestamp: true
