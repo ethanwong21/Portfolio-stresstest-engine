@@ -44,6 +44,13 @@ comparison:
   enable: true
   sorting_metric: "worst_scenario_return"
 
+backtest:
+  enabled: true
+  frequency: "M"          # Options: "M" ( मंथly), "D" (Daily), "W" (Weekly), "Q" (Quarterly)
+  window_size: 60          # E.g., 60 days of historical regressions
+  start_date: "2018-01-01" 
+  end_date: "2023-12-31"
+
 outputs:
   results_dir: "outputs/"
   csv_export: false

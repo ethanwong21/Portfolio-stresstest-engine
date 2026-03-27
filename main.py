@@ -61,6 +61,12 @@ def main():
     group.add_argument("--portfolio", type=str, help="Path to a single portfolio CSV (overrides config)")
     group.add_argument("--compare", nargs='+', help="Paths to multiple portfolio CSVs for comparison testing")
     
+    # Backtest arguments
+    parser.add_argument("--rolling-backtest", action='store_true', help="Execute rolling historical backtest for model validation")
+    parser.add_argument("--start-date", type=str, help="Override backtest start date (YYYY-MM-DD)")
+    parser.add_argument("--end-date", type=str, help="Override backtest end date (YYYY-MM-DD)")
+    parser.add_argument("--window-size", type=int, help="Override rolling history window size (integer)")
+    
     args = parser.parse_args()
     
     logger.info("Starting Portfolio Risk Engine")
@@ -69,11 +75,38 @@ def main():
     config = load_config(args.config)
     logger.info("Configuration loaded successfully.")
     
-    # 2. Pre-fetch Market & Macro Data
+    # 2. Trigger Rolling Backtest Branch Conditionally
+    bt_df = None
+    bt_metrics = None
+    if args.rolling_backtest:
+        from backtesting.rolling_backtest import run_rolling_backtest, print_backtest_summary
+        
+        if args.start_date: config.backtest.start_date = args.start_date
+        if args.end_date: config.backtest.end_date = args.end_date
+        if args.window_size: config.backtest.window_size = args.window_size
+        
+        logger.info("Initiating Rolling Time-Based Backtest routines.")
+        
+        target_port = args.portfolio if args.portfolio else (args.compare[0] if args.compare else config.portfolio.file_path)
+        temp_config = config.model_copy(deep=True)
+        temp_config.portfolio.file_path = target_port
+        
+        portfolio_loader = PortfolioLoader(temp_config.portfolio)
+        portfolio_df = portfolio_loader.load_portfolio()
+        
+        market_loader = MarketDataLoader(config.market_data)
+        factor_returns = market_loader.fetch_data()
+        tickers = portfolio_df['ticker'].tolist() if 'ticker' in portfolio_df.columns else portfolio_df.index.tolist()
+        asset_returns = market_loader.fetch_asset_returns(tickers)
+        
+        bt_df, bt_metrics = run_rolling_backtest(portfolio_df, asset_returns, factor_returns, config.backtest, config.model_parameters)
+        print_backtest_summary(bt_metrics)
+        
+    # 3. Pre-fetch Market & Macro Data (Standard Mode)
     market_loader = MarketDataLoader(config.market_data)
     factor_returns = market_loader.fetch_data()
     
-    # 3. Generate Central Scenarios
+    # 4. Generate Central Scenarios
     scenario_gen = ScenarioGenerator(config.scenarios)
     shocks = scenario_gen.get_shocks()
     
@@ -82,7 +115,7 @@ def main():
         shocks.update(dyn_gen.generate_dynamic_scenarios())
         logger.info(f"Total stress scenarios consolidated for impact modeling: {len(shocks)}.")
         
-    # 4. Determine Portfolios to Run
+    # 5. Determine Portfolios to Run
     portfolios_to_run = []
     if args.compare:
         portfolios_to_run = args.compare
@@ -91,9 +124,9 @@ def main():
     else:
         portfolios_to_run = [config.portfolio.file_path]
         
-    # 5. Execute Portfolio Specific Analytics
-    report_gen = ReportGenerator(config.outputs)
+    # 6. Execute Portfolio Specific Analytics
     comparer = PortfolioComparer(getattr(config, 'comparison', None))
+    master_results_dict = None
     
     for p_path in portfolios_to_run:
         name = Path(p_path).stem
@@ -102,29 +135,26 @@ def main():
         )
         comparer.add_portfolio_result(name, scenario_pnl, risk_metrics, total_val)
         
-        # Single Portfolio Run Fallthrough
-        if not args.compare:
-            report_gen.export_scenario_results(scenario_pnl)
-            report_gen.export_asset_contributions(scenario_pnl)
-            report_gen.plot_scenario_impacts(scenario_pnl)
-            report_gen.export_risk_metrics(risk_metrics)
-            
-            results_dict = {
+        # Save the first portfolio processed as our MASTER details portfolio
+        if master_results_dict is None:
+            master_results_dict = {
                 'scenario_pnl': scenario_pnl,
                 'portfolio': portfolio,
                 'exposures': exposures,
                 'shocks': shocks,
                 'risk_metrics': risk_metrics
             }
-            report_gen.export_to_excel(results_dict)
             
-    # 6. Execute Multiple Portfolio Comparison Logic
-    if args.compare and getattr(config, 'comparison', None) and config.comparison.enable:
+    # 7. Execute Multiple Portfolio Comparison Logic
+    comp_df = None
+    if len(portfolios_to_run) > 1 and getattr(config, 'comparison', None) and config.comparison.enable:
         comp_df = comparer.compare_portfolios()
         comparer.print_summary(comp_df)
         
-        # We need to dispatch the comparison Dataframe to the exporter alongside the portfolios
-        report_gen.export_comparison_excel(comparer.results, comp_df, shocks)
+    # 8. EXPORT UNIFIED REPORT
+    if master_results_dict:
+        report_gen = ReportGenerator(config.outputs)
+        report_gen.export_unified_report(master_results_dict, comp_df=comp_df, bt_df=bt_df, bt_metrics=bt_metrics)
 
     logger.info("Portfolio stress testing engine execution completed successfully.")
 

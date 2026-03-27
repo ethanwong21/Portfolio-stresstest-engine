@@ -40,6 +40,13 @@ class ComparisonConfig(BaseModel):
     enable: bool
     sorting_metric: str = "worst_scenario_return"
 
+class BacktestConfig(BaseModel):
+    enabled: bool
+    frequency: str = "M"
+    window_size: int = 60
+    start_date: str
+    end_date: str
+
 class AppConfig(BaseModel):
     portfolio: PortfolioConfig
     market_data: MarketDataConfig
@@ -47,6 +54,7 @@ class AppConfig(BaseModel):
     scenarios: List[ScenarioConfig]
     dynamic_scenarios: DynamicScenariosConfig
     comparison: ComparisonConfig
+    backtest: BacktestConfig
     outputs: OutputsConfig
 
     model_config = ConfigDict(strict=False)
