@@ -35,6 +35,15 @@ scenarios:
       inflation: 0.05
       credit: -0.10
 
+dynamic_scenarios:
+  enable: true
+  sigma_levels: [1, 2]
+  factors: ["rates", "equity", "inflation"]
+
+comparison:
+  enable: true
+  sorting_metric: "worst_scenario_return"
+
 outputs:
   results_dir: "outputs/"
   csv_export: false

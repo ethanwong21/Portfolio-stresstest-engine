@@ -31,11 +31,22 @@ class OutputsConfig(BaseModel):
     png_export: bool = False
     excel_export: ExcelExportConfig
 
+class DynamicScenariosConfig(BaseModel):
+    enable: bool
+    sigma_levels: List[int]
+    factors: List[str]
+
+class ComparisonConfig(BaseModel):
+    enable: bool
+    sorting_metric: str = "worst_scenario_return"
+
 class AppConfig(BaseModel):
     portfolio: PortfolioConfig
     market_data: MarketDataConfig
     model_parameters: ModelParametersConfig
     scenarios: List[ScenarioConfig]
+    dynamic_scenarios: DynamicScenariosConfig
+    comparison: ComparisonConfig
     outputs: OutputsConfig
 
     model_config = ConfigDict(strict=False)

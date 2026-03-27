@@ -111,6 +111,80 @@ class ReportGenerator:
             
         logger.info(f"Exported professional institutional Excel dashboard to {out_path}")
         
+    def export_comparison_excel(self, all_results: dict, comp_df: pd.DataFrame, shocks: dict):
+        """
+        Generates a comparative analysis workbook evaluating multiple portfolios simultaneously.
+        """
+        if not self.excel_config or not getattr(self.excel_config, 'enable', False):
+            return
+            
+        out_path = os.path.join(self.results_dir, "portfolio_comparison.xlsx")
+        
+        # Inject Ranking Metric
+        comp_df = comp_df.copy()
+        if 'Worst Scenario Return' in comp_df.columns:
+            comp_df.insert(1, 'Risk Rank', range(1, len(comp_df) + 1))
+        
+        with pd.ExcelWriter(out_path, engine='xlsxwriter') as writer:
+            workbook = writer.book
+            
+            pct_fmt = workbook.add_format({'num_format': '0.00%', 'align': 'center'})
+            money_fmt = workbook.add_format({'num_format': '$#,##0.00'})
+            header_fmt = workbook.add_format({'bold': True, 'bottom': 2, 'bg_color': '#2C3E50', 'font_color': 'white', 'align': 'center'})
+            rank_fmt = workbook.add_format({'bold': True, 'align': 'center', 'bg_color': '#F2F2F2', 'border': 1})
+            
+            red_cond = {'type': 'cell', 'criteria': '<', 'value': 0, 'format': workbook.add_format({'font_color': '#9C0006', 'bg_color': '#FFC7CE'})}
+            green_cond = {'type': 'cell', 'criteria': '>=', 'value': 0, 'format': workbook.add_format({'font_color': '#006100', 'bg_color': '#C6EFCE'})}
+            
+            # 1. Comparison Dashboard
+            comp_df.to_excel(writer, sheet_name='Portfolio Comparison', index=False)
+            ws_comp = writer.sheets['Portfolio Comparison']
+            
+            for col_num, value in enumerate(comp_df.columns.values):
+                ws_comp.write(0, col_num, value, header_fmt)
+                
+            ws_comp.set_column(0, 0, 25)           # Portfolio Name
+            ws_comp.set_column(1, 1, 12, rank_fmt) # Rank
+            ws_comp.set_column(2, 5, 20, pct_fmt)  # Returns and risk metrics
+            ws_comp.set_column(6, 6, 20, money_fmt)# Total Value
+            
+            # Conditional formatting for Returns
+            max_r = len(comp_df)
+            ws_comp.conditional_format(f'C2:E{max_r+1}', red_cond)
+            ws_comp.conditional_format(f'C2:E{max_r+1}', green_cond)
+            
+            # Aggregate Bar Chart
+            chart_comp = workbook.add_chart({'type': 'column'})
+            col_idx_worst = comp_df.columns.get_loc('Worst Scenario Return')
+            
+            chart_comp.add_series({
+                'name': 'Worst Scenario Return',
+                'categories': ['Portfolio Comparison', 1, 0, max_r, 0],
+                'values':     ['Portfolio Comparison', 1, col_idx_worst, max_r, col_idx_worst],
+                'fill':       {'color': '#C0504D'},
+                'data_labels': {'value': True, 'num_format': '0.00%'}
+            })
+            chart_comp.set_title({'name': 'Portfolio Risk Comparison (Max Drawdown Impacts)'})
+            chart_comp.set_y_axis({'name': 'Return', 'num_format': '0.00%'})
+            chart_comp.set_size({'width': 750, 'height': 350})
+            
+            # Ensure it clears any columns to layout cleanly
+            ws_comp.insert_chart('I2', chart_comp)
+            
+            # 2. Append sub-sheets for specific portfolio summaries
+            for name, data in all_results.items():
+                df_summ, _, _ = self._prepare_summary_data(data['scenario_pnl'], shocks, data['risk_metrics'], pd.DataFrame())
+                sh_name = f"{name[:25].capitalize()} Config"
+                df_summ.to_excel(writer, sheet_name=sh_name, index=False)
+                ws = writer.sheets[sh_name]
+                for c_n, val in enumerate(df_summ.columns.values):
+                    ws.write(0, c_n, val, header_fmt)
+                ws.set_column(0, 1, 20)
+                ws.set_column(2, 4, 15, pct_fmt)
+                ws.conditional_format(f'C2:E{len(df_summ)+1}', red_cond)
+
+        logger.info(f"Exported multi-portfolio comparison to {out_path}")
+
     def _prepare_summary_data(self, scenario_pnl, shocks, risk_metrics, portfolio):
         summary_data = []
         worst_scenario_name = "N/A"
