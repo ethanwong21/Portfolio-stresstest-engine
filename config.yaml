@@ -1,0 +1,44 @@
+portfolio:
+  file_path: "sample_portfolio.csv"
+  columns:
+    ticker: "Ticker"
+    asset_class: "Asset Class"
+    weight: "Weight"
+    price: "Price"
+    quantity: "Shares"
+
+market_data:
+  source: "simulated" # options: "yfinance" or "simulated"
+  start_date: "2018-01-01"
+  end_date: "2023-12-31"
+  factors:
+    equity: "SPY"
+    rates: "^TNX"     # 10-Year T-Note
+    credit: "LQD"     # Inv Grade Corporate Bond ETF
+    inflation: "TIP"  # TIPS Bond ETF
+
+model_parameters:
+  rolling_window_days: 252 # 1 year of trading days
+  var_confidence_level: 0.95
+
+scenarios:
+  - name: "Equity Market Crash"
+    shocks:
+      equity: -0.20
+  - name: "Yield Curve Shock (+100bps)"
+    shocks:
+      rates: 0.01
+  - name: "Stagflation"
+    shocks:
+      equity: -0.15
+      rates: 0.02
+      inflation: 0.05
+      credit: -0.10
+
+outputs:
+  results_dir: "outputs/"
+  csv_export: false
+  png_export: false
+  excel_export:
+    enable: true
+    file_name: "stress_test_dashboard.xlsx"

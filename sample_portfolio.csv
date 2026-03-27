@@ -1,0 +1,5 @@
+Ticker,Asset Class,Weight,Price,Shares
+AAPL,Equity,0.40,150.0,266.6
+MSFT,Equity,0.30,300.0,100.0
+TLT,Fixed Income,0.20,100.0,200.0
+JPM,Equity,0.10,140.0,71.4

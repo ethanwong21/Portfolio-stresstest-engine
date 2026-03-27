@@ -1,0 +1,23 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Portfolio Stress Test - Specific Cache Folders
+models/__pycache__/
+outputs/__pycache__/
+scenarios/__pycache__/
+data/__pycache__/
+utils/__pycache__/
+
+# Output artifacts (results)
+outputs/*.csv
+outputs/*.png
+outputs/*.xlsx
+
+# Environment
+.env
+venv/
+env/
+.vscode/
+.idea/
