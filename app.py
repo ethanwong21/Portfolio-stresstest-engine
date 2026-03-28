@@ -25,22 +25,52 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom Styling
-st.markdown("""
-<style>
-    .main {
-        background-color: #f8f9fa;
-    }
-    .stMetric {
-        background-color: #ffffff;
-        padding: 20px;
-        border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    }
-</style>
-""", unsafe_allow_html=True)
-
 def main():
+    # Sidebar: Configuration & Upload
+    st.sidebar.header("Dashboard Settings")
+    theme = st.sidebar.selectbox("UI Theme", ["Dark", "Light"], index=0)
+    
+    # Dynamic CSS based on Theme
+    if theme == "Dark":
+        bg_color = "#0e1117"
+        card_bg = "#1e1e1e"
+        text_color = "#ffffff"
+        label_color = "#cccccc"
+        plotly_template = "plotly_dark"
+    else:
+        bg_color = "#f8f9fa"
+        card_bg = "#ffffff"
+        text_color = "#000000"
+        label_color = "#333333"
+        plotly_template = "plotly_white"
+
+    st.markdown(f"""
+    <style>
+        .stApp {{
+            background-color: {bg_color};
+            color: {text_color};
+        }}
+        [data-testid="stMetric"] {{
+            background-color: {card_bg};
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            border: 1px solid rgba(255,255,255,0.05);
+        }}
+        [data-testid="stMetricLabel"] p {{
+            color: {label_color} !important;
+            font-size: 0.9rem !important;
+        }}
+        [data-testid="stMetricValue"] div {{
+            color: {text_color} !important;
+            font-weight: bold !important;
+        }}
+        .stMarkdown h3, .stMarkdown h2, .stMarkdown h1 {{
+            color: {text_color} !important;
+        }}
+    </style>
+    """, unsafe_allow_html=True)
+
     st.title("Portfolio Risk & Stress Intelligence")
     st.subheader("Financial Engineering Dashboard")
     
@@ -132,7 +162,8 @@ def main():
                     fig = px.bar(
                         plot_df, x='Scenario', y='Return', 
                         color='Return', color_continuous_scale='RdYlGn',
-                        text_auto='.2%'
+                        text_auto='.2%',
+                        template=plotly_template
                     )
                     fig.update_layout(showlegend=False, margin=dict(l=20, r=20, t=20, b=20))
                     st.plotly_chart(fig, use_container_width=True)
@@ -145,7 +176,8 @@ def main():
                     fig_pie = px.pie(
                         contrib_df, values=contrib_df['PnL Contribution'].abs(), 
                         names='Asset', hole=.4,
-                        color_discrete_sequence=px.colors.qualitative.Pastel
+                        color_discrete_sequence=px.colors.qualitative.Pastel,
+                        template=plotly_template
                     )
                     fig_pie.update_layout(margin=dict(l=20, r=20, t=20, b=20))
                     st.plotly_chart(fig_pie, use_container_width=True)
@@ -184,6 +216,7 @@ def main():
                                 title="Predicted vs Actual Portfolio Returns", 
                                 xaxis_title="Date", 
                                 yaxis_title="Return",
+                                template=plotly_template,
                                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                             )
                             
