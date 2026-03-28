@@ -68,7 +68,7 @@ def main():
             tmp.write(uploaded_file.getvalue())
             tmp_path = tmp.name
 
-        if st.sidebar.button("🚀 Run Stress Test", use_container_width=True):
+        if st.sidebar.button("Run Stress Test", use_container_width=True):
             with st.spinner("Executing Financial Models..."):
                 # 1. Market Data Ingestion
                 m_loader = MarketDataLoader(config.market_data)
@@ -227,7 +227,7 @@ def main():
                 
                 with open(report_path, "rb") as f:
                     st.download_button(
-                        label="📥 Download High-Fidelity Excel Dashboard",
+                        label="Download High-Fidelity Excel Dashboard",
                         data=f,
                         file_name=report_name,
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
