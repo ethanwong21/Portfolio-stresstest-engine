@@ -156,16 +156,45 @@ def main():
                     st.markdown("### Historical Model Validation (Backtest)")
                     bt_df, bt_metrics = bt_data
                     
-                    b1, b2, b3 = st.columns(3)
-                    b1.metric("MAE", f"{bt_metrics['MAE']*100:.2f}%")
-                    b2.metric("RMSE", f"{bt_metrics['RMSE']*100:.2f}%")
-                    b3.metric("Directional Hit", f"{bt_metrics['Directional Accuracy']*100:.1f}%")
-                    
-                    fig_bt = go.Figure()
-                    fig_bt.add_trace(go.Scatter(x=bt_df.index, y=bt_df['Predicted Return'], name="Predicted", line=dict(color='royalblue', width=2)))
-                    fig_bt.add_trace(go.Scatter(x=bt_df.index, y=bt_df['Actual Return'], name="Actual", line=dict(color='firebrick', width=2, dash='dot')))
-                    fig_bt.update_layout(title="Predicted vs Actual Portfolio Returns", xaxis_title="Date", y_axis_title="Return")
-                    st.plotly_chart(fig_bt, use_container_width=True)
+                    if bt_df is not None and not bt_df.empty:
+                        # Defensive Validation & Prep
+                        bt_df = bt_df.dropna()
+                        required_cols = ["Predicted Return", "Actual Return"]
+                        
+                        if all(col in bt_df.columns for col in required_cols):
+                            b1, b2, b3 = st.columns(3)
+                            b1.metric("MAE", f"{bt_metrics['MAE']*100:.2f}%")
+                            b2.metric("RMSE", f"{bt_metrics['RMSE']*100:.2f}%")
+                            b3.metric("Directional Hit", f"{bt_metrics['Directional Accuracy']*100:.1f}%")
+                            
+                            fig_bt = go.Figure()
+                            fig_bt.add_trace(go.Scatter(
+                                x=bt_df.index, 
+                                y=bt_df['Predicted Return'], 
+                                name="Predicted", 
+                                line=dict(color='royalblue', width=2)
+                            ))
+                            fig_bt.add_trace(go.Scatter(
+                                x=bt_df.index, 
+                                y=bt_df['Actual Return'], 
+                                name="Actual", 
+                                line=dict(color='firebrick', width=2, dash='dot')
+                            ))
+                            fig_bt.update_layout(
+                                title="Predicted vs Actual Portfolio Returns", 
+                                xaxis_title="Date", 
+                                yaxis_title="Return",
+                                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+                            )
+                            
+                            try:
+                                st.plotly_chart(fig_bt, use_container_width=True)
+                            except Exception as e:
+                                st.error(f"Chart rendering failed: {e}")
+                        else:
+                            st.error("Backtest data missing required columns: Predicted/Actual Return")
+                    else:
+                        st.warning("Backtest data unavailable for this selection.")
 
                 # 4. Download Unified Report
                 st.divider()
