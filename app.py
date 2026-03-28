@@ -4,6 +4,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import os
 import tempfile
+import copy
 from pathlib import Path
 from datetime import datetime
 
@@ -117,34 +118,52 @@ def main():
                 import logging
                 logger = logging.getLogger("streamlit_app")
                 
-                comparer = PortfolioComparer(getattr(config, 'comparison', None))
-                all_results = {}
+                results_list = []
                 temp_files = []
                 
                 for uploaded_file in uploaded_files:
+                    # Enforce strict isolation with deepcopy
+                    local_config = copy.deepcopy(config)
+                    
                     # Save to temp
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
                         tmp.write(uploaded_file.getvalue())
                         tmp_path = tmp.name
                         temp_files.append(tmp_path)
                     
-                    # Run Analysis
+                    # Run Analysis with independent config
                     res = run_portfolio_analysis(
-                        tmp_path, config, m_loader, f_rets, shocks, logger
+                        tmp_path, local_config, m_loader, f_rets, shocks, logger
                     )
                     
-                    # Accumulate for Comparison
-                    p_name = Path(uploaded_file.name).stem
+                    # Prevent result object overwriting
+                    p_res = res.copy()
+                    p_res["name"] = uploaded_file.name
+                    results_list.append(p_res)
+
+                # DEBUG VALIDATION: Confirm independence
+                st.write("---")
+                st.markdown("#### Portfolio Process Isolation Check")
+                st.write("Processed Portfolio Names:", [r["name"] for r in results_list])
+                worst_rets = []
+                for r in results_list:
+                    scen_data = r['scenario_pnl']
+                    w_name = min(scen_data.keys(), key=lambda k: scen_data[k]['portfolio_return'])
+                    worst_rets.append(f"{r['name']}: {scen_data[w_name]['portfolio_return']*100:.2f}%")
+                st.write("Worst Scenario Returns Check:", worst_rets)
+                st.write("---")
+
+                # Accumulate for Comparison from results_list
+                comparer = PortfolioComparer(getattr(config, 'comparison', None))
+                for res in results_list:
+                    p_name = Path(res["name"]).stem
                     m_val = res['portfolio'].get('market_value', pd.Series([0])).sum()
                     comparer.add_portfolio_result(p_name, res['scenario_pnl'], res['risk_metrics'], m_val)
-                    
-                    all_results[p_name] = res
 
                 # 4. Backtest (Optional - only for the first portfolio in UI for now to avoid clutter)
                 bt_data = None
                 if run_backtest and mode == "single":
-                    first_p_name = list(all_results.keys())[0]
-                    res = all_results[first_p_name]
+                    res = results_list[0]
                     p_loader = PortfolioLoader(config.portfolio) 
                     p_df = p_loader.load_portfolio()
                     tickers = p_df['ticker'].tolist() if 'ticker' in p_df.columns else p_df.index.tolist()
@@ -156,8 +175,8 @@ def main():
                 
                 if mode == "single":
                     # --- SINGLE PORTFOLIO DASHBOARD ---
-                    p_name = list(all_results.keys())[0]
-                    results = all_results[p_name]
+                    results = results_list[0]
+                    p_name = Path(results["name"]).stem
                     
                     # 1. KPI Strip
                     st.divider()
@@ -171,10 +190,10 @@ def main():
                     var_val = results['risk_metrics'].get('var_percent', 0)
                     max_dd = results['risk_metrics'].get('max_historical_drawdown', 0)
                     
-                    kpi1.metric("Maximum Drawdown", f"{max_dd*100:.2f}%")
-                    kpi2.metric("Portfolio VaR (95%)", f"{var_val*100:.2f}%")
-                    kpi3.metric("Worst Scenario Return", f"{worst_scen['portfolio_return']*100:.2f}%", help=worst_scen_name)
-                    kpi4.metric("Total Portfolio Value", f"${total_val:,.0f}")
+                    kpi1.metric("Maximum Drawdown", f"{max_dd*100:.2f}%", key="kpi_max_dd")
+                    kpi2.metric("Portfolio VaR (95%)", f"{var_val*100:.2f}%", key="kpi_var")
+                    kpi3.metric("Worst Scenario Return", f"{worst_scen['portfolio_return']*100:.2f}%", help=worst_scen_name, key="kpi_worst_scen")
+                    kpi4.metric("Total Portfolio Value", f"${total_val:,.0f}", key="kpi_total_val")
                     
                     # 2. Charts Row
                     c1, c2 = st.columns([2, 1])
@@ -193,7 +212,7 @@ def main():
                             template=plotly_template
                         )
                         fig.update_layout(showlegend=False, margin=dict(l=20, r=20, t=20, b=20))
-                        st.plotly_chart(fig, use_container_width=True)
+                        st.plotly_chart(fig, use_container_width=True, key="main_stress_chart")
                     
                     with c2:
                         st.markdown("### Worst Scenario Attribution")
@@ -206,7 +225,7 @@ def main():
                             template=plotly_template
                         )
                         fig_pie.update_layout(margin=dict(l=20, r=20, t=20, b=20))
-                        st.plotly_chart(fig_pie, use_container_width=True)
+                        st.plotly_chart(fig_pie, use_container_width=True, key="main_pie_chart")
                         
                     # 3. Backtest (if run)
                     if bt_data:
@@ -233,7 +252,7 @@ def main():
                                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                                 )
                                 try:
-                                    st.plotly_chart(fig_bt, use_container_width=True)
+                                    st.plotly_chart(fig_bt, use_container_width=True, key="backtest_chart")
                                 except Exception as e:
                                     st.error(f"Chart rendering failed: {e}")
                 
@@ -263,7 +282,7 @@ def main():
                         if wc_col in comp_df.columns:
                             styled_df = styled_df.background_gradient(subset=[wc_col], cmap='RdYlGn')
                             
-                        st.dataframe(styled_df, use_container_width=True)
+                        st.dataframe(styled_df, use_container_width=True, key="comparison_table")
                         
                         # 2. Risk Rank Chart
                         st.markdown("#### Portfolio Risk Ranking (Worst Case Scenario)")
@@ -276,22 +295,23 @@ def main():
                             text_auto='.2%'
                         )
                         fig_comp.update_layout(yaxis_title="Expected Loss (%)", showlegend=False)
-                        st.plotly_chart(fig_comp, use_container_width=True)
+                        st.plotly_chart(fig_comp, use_container_width=True, key="comparison_risk_rank")
 
-                    # 3. Individual Portfolio Deep-Dives (requested enhancement)
+                    # 3. Individual Portfolio Deep-Dives
                     st.divider()
                     st.markdown("### Individual Portfolio Analysis Details")
-                    for p_name, results in all_results.items():
-                        with st.expander(f"🔍 Deep-Dive: {p_name}", expanded=False):
+                    for i, results in enumerate(results_list):
+                        p_name = Path(results["name"]).stem
+                        with st.expander(f"🔍 Deep-Dive: {p_name}", expanded=False, key=f"expander_{i}"):
                             i_kpi1, i_kpi2, i_kpi3 = st.columns(3)
                             
                             i_scenario_data = results['scenario_pnl']
                             i_worst_scen_name = min(i_scenario_data.keys(), key=lambda k: i_scenario_data[k]['portfolio_return'])
                             i_worst_scen = i_scenario_data[i_worst_scen_name]
                             
-                            i_kpi1.metric("Worst Case", f"{i_worst_scen['portfolio_return']*100:.2f}%", help=i_worst_scen_name)
-                            i_kpi2.metric("VaR (95%)", f"{results['risk_metrics'].get('var_percent', 0)*100:.2f}%")
-                            i_kpi3.metric("Max Drawdown", f"{results['risk_metrics'].get('max_historical_drawdown', 0)*100:.2f}%")
+                            i_kpi1.metric("Worst Case", f"{i_worst_scen['portfolio_return']*100:.2f}%", help=i_worst_scen_name, key=f"dd_kpi1_{i}")
+                            i_kpi2.metric("VaR (95%)", f"{results['risk_metrics'].get('var_percent', 0)*100:.2f}%", key=f"dd_kpi2_{i}")
+                            i_kpi3.metric("Max Drawdown", f"{results['risk_metrics'].get('max_historical_drawdown', 0)*100:.2f}%", key=f"dd_kpi3_{i}")
                             
                             # Simple Viz for the expander
                             i_plot_df = pd.DataFrame([
@@ -305,7 +325,7 @@ def main():
                                 template=plotly_template
                             )
                             fig_i.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
-                            st.plotly_chart(fig_i, use_container_width=True)
+                            st.plotly_chart(fig_i, use_container_width=True, key=f"dd_chart_{i}")
 
                 # 5. Download Unified Report
                 st.divider()
@@ -321,8 +341,7 @@ def main():
                 report_gen = ReportGenerator(config.outputs)
                 
                 # Use the first portfolio's results as the primary master_res
-                first_p_name = list(all_results.keys())[0]
-                master_res = all_results[first_p_name]
+                master_res = results_list[0].copy()
                 master_res['shocks'] = shocks
                 
                 report_gen.export_unified_report(
