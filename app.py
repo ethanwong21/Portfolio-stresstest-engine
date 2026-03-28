@@ -244,29 +244,68 @@ def main():
                     
                     comp_df = comparer.compare_portfolios()
                     
-                    # 1. Comparison Metrics Table
-                    st.dataframe(
-                        comp_df.style.format({
-                            'Worst Case (%)': '{:.2f}%',
-                            'VaR 95% (%)': '{:.2f}%',
-                            'Max Historical Drawdown (%)': '{:.2f}%',
-                            'Total Mkt Value': '${:,.0f}'
-                        }).background_gradient(subset=['Worst Case (%)'], cmap='RdYlGn'),
-                        use_container_width=True
-                    )
-                    
-                    # 2. Risk Rank Chart
-                    st.markdown("#### Portfolio Risk Ranking (Worst Case Scenario)")
-                    fig_comp = px.bar(
-                        comp_df.reset_index(), 
-                        x='Portfolio', y='Worst Case (%)',
-                        color='Worst Case (%)',
-                        color_continuous_scale='RdYlGn',
-                        template=plotly_template,
-                        text_auto='.2f'
-                    )
-                    fig_comp.update_layout(yaxis_title="Expected Loss (%)", showlegend=False)
-                    st.plotly_chart(fig_comp, use_container_width=True)
+                    if comp_df.empty:
+                        st.warning("No portfolios analyzed for comparison.")
+                    else:
+                        # 1. Comparison Metrics Table
+                        # Dynamically format all numeric columns
+                        num_cols = comp_df.select_dtypes(include=['number']).columns
+                        pct_cols = [c for c in num_cols if "Value" not in c]
+                        val_cols = [c for c in num_cols if "Value" in c]
+                        
+                        styled_df = comp_df.style.format({
+                            **{c: "{:.2%}" for c in pct_cols},
+                            **{c: "${:,.0f}" for c in val_cols}
+                        })
+                        
+                        # Add gradient to worst-case column if it exists
+                        wc_col = 'Worst Scenario Return'
+                        if wc_col in comp_df.columns:
+                            styled_df = styled_df.background_gradient(subset=[wc_col], cmap='RdYlGn')
+                            
+                        st.dataframe(styled_df, use_container_width=True)
+                        
+                        # 2. Risk Rank Chart
+                        st.markdown("#### Portfolio Risk Ranking (Worst Case Scenario)")
+                        fig_comp = px.bar(
+                            comp_df, 
+                            x='Portfolio Name', y='Worst Scenario Return',
+                            color='Worst Scenario Return',
+                            color_continuous_scale='RdYlGn',
+                            template=plotly_template,
+                            text_auto='.2%'
+                        )
+                        fig_comp.update_layout(yaxis_title="Expected Loss (%)", showlegend=False)
+                        st.plotly_chart(fig_comp, use_container_width=True)
+
+                    # 3. Individual Portfolio Deep-Dives (requested enhancement)
+                    st.divider()
+                    st.markdown("### Individual Portfolio Analysis Details")
+                    for p_name, results in all_results.items():
+                        with st.expander(f"🔍 Deep-Dive: {p_name}", expanded=False):
+                            i_kpi1, i_kpi2, i_kpi3 = st.columns(3)
+                            
+                            i_scenario_data = results['scenario_pnl']
+                            i_worst_scen_name = min(i_scenario_data.keys(), key=lambda k: i_scenario_data[k]['portfolio_return'])
+                            i_worst_scen = i_scenario_data[i_worst_scen_name]
+                            
+                            i_kpi1.metric("Worst Case", f"{i_worst_scen['portfolio_return']*100:.2f}%", help=i_worst_scen_name)
+                            i_kpi2.metric("VaR (95%)", f"{results['risk_metrics'].get('var_percent', 0)*100:.2f}%")
+                            i_kpi3.metric("Max Drawdown", f"{results['risk_metrics'].get('max_historical_drawdown', 0)*100:.2f}%")
+                            
+                            # Simple Viz for the expander
+                            i_plot_df = pd.DataFrame([
+                                {'Scenario': n, 'Return': d['portfolio_return']} 
+                                for n, d in i_scenario_data.items()
+                            ]).sort_values(by='Return')
+                            
+                            fig_i = px.bar(
+                                i_plot_df, x='Scenario', y='Return', 
+                                color='Return', color_continuous_scale='RdYlGn',
+                                template=plotly_template
+                            )
+                            fig_i.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
+                            st.plotly_chart(fig_i, use_container_width=True)
 
                 # 5. Download Unified Report
                 st.divider()
