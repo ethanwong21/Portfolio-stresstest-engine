@@ -85,11 +85,13 @@ class MarketDataLoader:
         returns = pd.DataFrame(returns_data, index=dates, columns=factors)
         return returns
 
-    def fetch_asset_returns(self, tickers: list) -> pd.DataFrame:
+    def fetch_asset_returns(self, tickers: list, force_simulate: bool = False) -> pd.DataFrame:
         """
         Fetches historical data for the portfolio assets dynamically.
         """
-        if self.config.source == "yfinance":
+        source = "simulated" if force_simulate else self.config.source
+        
+        if source == "yfinance":
             logger.info(f"Fetching historical asset data for tickers: {tickers}")
             data_raw = yf.download(
                 tickers, 
@@ -108,16 +110,24 @@ class MarketDataLoader:
                 data.columns = tickers
                 
             returns = data.dropna().pct_change().dropna()
+            
+            # Log summary statistics for quality check
+            for col in returns.columns:
+                logger.debug(f"Asset {col} returns: mean={returns[col].mean():.6f}, std={returns[col].std():.6f}")
+                
             return returns
-        elif self.config.source == "simulated" or locals().get('force_simulate', False):
+            
+        elif source == "simulated":
             logger.info(f"Simulating daily returns for assets: {tickers}")
             dates = pd.date_range(start=self.config.start_date, end=self.config.end_date, freq='B')
             n_days = len(dates)
+            
+            # Use non-zero loc to avoid flat series
             returns_data = np.random.normal(loc=0.0005, scale=0.015, size=(n_days, len(tickers)))
             returns = pd.DataFrame(returns_data, index=dates, columns=tickers)
             return returns
         else:
-            raise ValueError(f"Unknown data source: {self.config.source}")
+            raise ValueError(f"Unknown data source: {source}")
 
 if __name__ == "__main__":
     # Smoke test placeholder

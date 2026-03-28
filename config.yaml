@@ -8,7 +8,7 @@ portfolio:
     quantity: "Shares"
 
 market_data:
-  source: "simulated" # options: "yfinance" or "simulated"
+  source: "yfinance" # options: "yfinance" or "simulated"
   start_date: "2018-01-01"
   end_date: "2023-12-31"
   factors:
