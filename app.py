@@ -32,6 +32,9 @@ def safe_format(value, fmt="{:.2f}%"):
     except Exception:
         return "N/A"
 
+# Alias for backward compatibility
+safe_metric_value = safe_format
+
 from utils.config import load_config
 from data.portfolio import PortfolioLoader
 from data.market_data import MarketDataLoader
@@ -115,8 +118,17 @@ def main():
     run_backtest = st.sidebar.checkbox("Run Rolling Backtest (Slow)", value=False)
     
     if uploaded_files:
-        mode = "comparison" if len(uploaded_files) > 1 else "single"
-        st.sidebar.info(f"Execution Mode: **{mode.upper()}**")
+        num_ports = len(uploaded_files)
+        if num_ports == 1:
+            if run_backtest:
+                exec_mode = "BACKTEST"
+            elif run_dynamic:
+                exec_mode = "SCENARIO"
+            else:
+                exec_mode = "BASIC"
+        else:
+            exec_mode = "MULTI"
+        st.sidebar.info(f"Execution Mode: **{exec_mode.upper()}**")
         
         # Load Config
         try:
@@ -146,275 +158,107 @@ def main():
                 temp_files = []
                 
                 for uploaded_file in uploaded_files:
-                    # Enforce strict isolation with deepcopy
                     local_config = copy.deepcopy(config)
-                    
-                    # Save to temp
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".csv") as tmp:
                         tmp.write(uploaded_file.getvalue())
                         tmp_path = tmp.name
                         temp_files.append(tmp_path)
                     
-                    # Run Analysis with independent config – protect against failures
                     try:
-                        res = run_portfolio_analysis(
-                            tmp_path, local_config, m_loader, f_rets, shocks, logger
-                        )
+                        res = run_portfolio_analysis(tmp_path, local_config, m_loader, f_rets, shocks, logger)
+                        p_res = res.copy()
+                        p_res["name"] = uploaded_file.name
+                        results_list.append(p_res)
                     except Exception as e:
-                        st.error(f"Error processing portfolio {uploaded_file.name}: {e}")
-                        logger.error(f"Error processing portfolio {uploaded_file.name}: {e}")
+                        st.error(f"Error processing {uploaded_file.name}: {e}")
                         continue
-                    
-                    # Prevent result object overwriting
-                    p_res = res.copy()
-                    p_res["name"] = uploaded_file.name
-                    results_list.append(p_res)
 
-                # DEBUG VALIDATION: Confirm independence
-                st.write("---")
-                st.markdown("#### Portfolio Process Isolation Check")
-                st.write("Processed Portfolio Names:", [r["name"] for r in results_list])
-                worst_rets = []
-                for r in results_list:
-                    scen_data = r['scenario_pnl']
-                    w_name = min(scen_data.keys(), key=lambda k: scen_data[k]['portfolio_return'])
-                    worst_rets.append(f"{r['name']}: {scen_data[w_name]['portfolio_return']*100:.2f}%")
-                st.write("Worst Scenario Returns Check:", worst_rets)
-                st.write("---")
-
-                # Accumulate for Comparison from results_list
+                # 4. Comparison & Reporting
                 comparer = PortfolioComparer(getattr(config, 'comparison', None))
                 for res in results_list:
                     p_name = Path(res["name"]).stem
                     m_val = res['portfolio'].get('market_value', pd.Series([0])).sum()
                     comparer.add_portfolio_result(p_name, res['scenario_pnl'], res['risk_metrics'], m_val)
 
-                # 4. Backtest (Optional - only for the first portfolio in UI for now to avoid clutter)
-                bt_data = None
-                if run_backtest and mode == "single":
-                    res = results_list[0]
-                    p_loader = PortfolioLoader(config.portfolio) 
-                    p_df = p_loader.load_portfolio()
-                    tickers = p_df['ticker'].tolist() if 'ticker' in p_df.columns else p_df.index.tolist()
-                    a_rets = m_loader.fetch_asset_returns(tickers)
-                    bt_df, bt_metrics = run_rolling_backtest(p_df, a_rets, f_rets, config.backtest, config.model_parameters)
-                    bt_data = (bt_df, bt_metrics)
-
-                # --- UI PRESENTATION ---
-                
-                if mode == "single":
-                    # --- SINGLE PORTFOLIO DASHBOARD ---
-                    results = results_list[0]
-                    p_name = Path(results["name"]).stem
-                    
-                    # 1. KPI Strip
+                # 5. UI Presentation
+                if exec_mode in ["BASIC", "SCENARIO", "BACKTEST"]:
+                    # Single portfolio view
+                    result = results_list[0]
+                    p_name = Path(result["name"]).stem
                     st.divider()
-                    kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-
-                    scenario_data = results['scenario_pnl']
+                    # KPI metrics with safe formatting and unique keys
+                    k1, k2, k3, k4 = st.columns(4)
+                    scenario_data = result['scenario_pnl']
                     worst_scen_name = min(scenario_data.keys(), key=lambda k: scenario_data[k]['portfolio_return'])
                     worst_scen = scenario_data[worst_scen_name]
-
-                    total_val = results['portfolio'].get('market_value', pd.Series([0])).sum()
-                    var_val = results['risk_metrics'].get('var_percent', 0)
-                    max_dd = results['risk_metrics'].get('max_historical_drawdown', 0)
-
-                    # Debug logging for KPI values
-                    st.sidebar.info(f"[DEBUG] Portfolio: {p_name} | max_dd raw: {max_dd} ({type(max_dd)})")
-                    st.sidebar.info(f"[DEBUG] Portfolio: {p_name} | var_val raw: {var_val} ({type(var_val)})")
-
-                    # Safe formatting
-                    max_dd_str = safe_format(max_dd * 100, fmt="{:.2f}%")
-                    var_val_str = safe_format(var_val * 100, fmt="{:.2f}%")
-                    worst_ret_str = safe_format(worst_scen['portfolio_return'] * 100, fmt="{:.2f}%")
-                    total_val_str = f"${total_val:,.0f}" if pd.notna(total_val) else "N/A"
-
-                    # Unique keys using portfolio name
-                    kpi1.metric("Maximum Drawdown", max_dd_str, key=f"kpi_max_dd_{p_name}")
-                    kpi2.metric("Portfolio VaR (95%)", var_val_str, key=f"kpi_var_{p_name}")
-                    kpi3.metric("Worst Scenario Return", worst_ret_str, help=worst_scen_name, key=f"kpi_worst_scen_{p_name}")
-                    kpi4.metric("Total Portfolio Value", total_val_str, key=f"kpi_total_val_{p_name}")
-                    
-                    # 2. Charts Row
+                    total_val = result['portfolio'].get('market_value', pd.Series([0])).sum()
+                    max_dd = result['risk_metrics'].get('max_historical_drawdown')
+                    var_val = result['risk_metrics'].get('var_percent')
+                    k1.metric("Maximum Drawdown", safe_format(max_dd, fmt="{:.2f}%"), key=f"Maximum Drawdown*{p_name}*0")
+                    k2.metric("Portfolio VaR (95%)", safe_format(var_val, fmt="{:.2f}%"), key=f"Portfolio VaR (95%)*{p_name}*1")
+                    k3.metric("Worst Scenario Return", safe_format(worst_scen.get('portfolio_return'), fmt="{:.2f}%"), help=worst_scen_name, key=f"Worst Scenario Return*{p_name}*2")
+                    k4.metric("Total Portfolio Value", f"${total_val:,.0f}" if pd.notna(total_val) else "N/A", key=f"Total Portfolio Value*{p_name}*3")
+                    # Charts with unique keys
                     c1, c2 = st.columns([2, 1])
-                    
                     with c1:
-                        st.markdown(f"### Stress Scenario Performance: {p_name}")
-                        plot_df = pd.DataFrame([
-                            {'Scenario': name, 'Return': data['portfolio_return']} 
-                            for name, data in scenario_data.items()
-                        ]).sort_values(by='Return')
-                        
-                        fig = px.bar(
-                            plot_df, x='Scenario', y='Return', 
-                            color='Return', color_continuous_scale='RdYlGn',
-                            text_auto='.2%',
-                            template=plotly_template
-                        )
-                        fig.update_layout(showlegend=False, margin=dict(l=20, r=20, t=20, b=20))
-                        st.plotly_chart(fig, use_container_width=True, key="main_stress_chart")
-                    
+                        plot_df = pd.DataFrame([{'Scenario': n, 'Return': d['portfolio_return']} for n, d in scenario_data.items()])
+                        fig = px.bar(plot_df, x='Scenario', y='Return', color='Return', color_continuous_scale='RdYlGn', template=plotly_template)
+                        st.plotly_chart(fig, use_container_width=True, key=f"Scenario Performance*{p_name}*0")
                     with c2:
-                        st.markdown("### Worst Scenario Attribution")
                         contrib_df = worst_scen['asset_contributions'].reset_index()
-                        contrib_df.columns = ['Asset', 'PnL Contribution']
-                        fig_pie = px.pie(
-                            contrib_df, values=contrib_df['PnL Contribution'].abs(), 
-                            names='Asset', hole=.4,
-                            color_discrete_sequence=px.colors.qualitative.Pastel,
-                            template=plotly_template
-                        )
-                        fig_pie.update_layout(margin=dict(l=20, r=20, t=20, b=20))
-                        st.plotly_chart(fig_pie, use_container_width=True, key="main_pie_chart")
-                        
-                    # 3. Backtest (if run)
-                    if bt_data:
-                        st.divider()
-                        st.markdown("### Historical Model Validation (Backtest)")
-                        bt_df, bt_metrics = bt_data
-                        
+                        fig_pie = px.pie(contrib_df, values=contrib_df.iloc[:,1].abs(), names=contrib_df.columns[0], hole=.4, template=plotly_template)
+                        st.plotly_chart(fig_pie, use_container_width=True, key=f"Worst Scenario Attribution*{p_name}*1")
+                    # Backtest if applicable
+                    if exec_mode == "BACKTEST":
+                        p_loader = PortfolioLoader(config.portfolio)
+                        p_df = p_loader.load_portfolio()
+                        tickers = p_df['ticker'].tolist() if 'ticker' in p_df.columns else p_df.index.tolist()
+                        a_rets = m_loader.fetch_asset_returns(tickers)
+                        bt_df, bt_metrics = run_rolling_backtest(p_df, a_rets, f_rets, config.backtest, config.model_parameters)
                         if bt_df is not None and not bt_df.empty:
-                            bt_df = bt_df.dropna()
-                            required_cols = ["Predicted Return", "Actual Return"]
-                            if all(col in bt_df.columns for col in required_cols):
-                                b1, b2, b3 = st.columns(3)
-                                b1.metric("MAE", f"{bt_metrics['MAE']*100:.2f}%")
-                                b2.metric("RMSE", f"{bt_metrics['RMSE']*100:.2f}%")
-                                b3.metric("Directional Hit", f"{bt_metrics['Directional Accuracy']*100:.1f}%")
-                                
-                                fig_bt = go.Figure()
-                                fig_bt.add_trace(go.Scatter(x=bt_df.index, y=bt_df['Predicted Return'], name="Predicted", line=dict(color='royalblue', width=2)))
-                                fig_bt.add_trace(go.Scatter(x=bt_df.index, y=bt_df['Actual Return'], name="Actual", line=dict(color='firebrick', width=2, dash='dot')))
-                                fig_bt.update_layout(
-                                    title="Predicted vs Actual Portfolio Returns", 
-                                    xaxis_title="Date", yaxis_title="Return",
-                                    template=plotly_template,
-                                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-                                )
-                                try:
-                                    st.plotly_chart(fig_bt, use_container_width=True, key="backtest_chart")
-                                except Exception as e:
-                                    st.error(f"Chart rendering failed: {e}")
-                
+                            st.divider()
+                            st.subheader("Historical Model Validation (Backtest)")
+                            b1, b2, b3 = st.columns(3)
+                            b1.metric("MAE", f"{bt_metrics['MAE']*100:.2f}%")
+                            b2.metric("RMSE", f"{bt_metrics['RMSE']*100:.2f}%")
+                            b3.metric("Directional Hit", f"{bt_metrics['Directional Accuracy']*100:.1f}%")
+                            fig_bt = go.Figure()
+                            fig_bt.add_trace(go.Scatter(x=bt_df.index, y=bt_df['Predicted Return'], name="Predicted", line=dict(color='royalblue', width=2)))
+                            fig_bt.add_trace(go.Scatter(x=bt_df.index, y=bt_df['Actual Return'], name="Actual", line=dict(color='firebrick', width=2, dash='dot')))
+                            fig_bt.update_layout(title="Predicted vs Actual Portfolio Returns", xaxis_title="Date", yaxis_title="Return", template=plotly_template)
+                            st.plotly_chart(fig_bt, use_container_width=True, key=f"Backtest Chart*{p_name}*0")
                 else:
-                    # --- MULTI-PORTFOLIO COMPARISON VIEW ---
+                    # Multi-portfolio comparison view
                     st.divider()
-                    st.markdown("### Multi-Portfolio Risk Comparison")
-                    
+                    st.subheader("Multi‑Portfolio Risk Comparison")
                     comp_df = comparer.compare_portfolios()
-                    
-                    if comp_df.empty:
-                        st.warning("No portfolios analyzed for comparison.")
-                    else:
-                        # 1. Comparison Metrics Table
-                        # Dynamically format all numeric columns
-                        num_cols = comp_df.select_dtypes(include=['number']).columns
-                        pct_cols = [c for c in num_cols if "Value" not in c]
-                        val_cols = [c for c in num_cols if "Value" in c]
-                        
-                        styled_df = comp_df.style.format({
-                            **{c: "{:.2%}" for c in pct_cols},
-                            **{c: "${:,.0f}" for c in val_cols}
-                        })
-                        
-                        # Add gradient to worst-case column if it exists
-                        wc_col = 'Worst Scenario Return'
-                        if wc_col in comp_df.columns:
-                            styled_df = styled_df.background_gradient(subset=[wc_col], cmap='RdYlGn')
-                            
-                        st.dataframe(styled_df, use_container_width=True, key="comparison_table")
-                        
-                        # 2. Risk Rank Chart
-                        st.markdown("#### Portfolio Risk Ranking (Worst Case Scenario)")
-                        fig_comp = px.bar(
-                            comp_df, 
-                            x='Portfolio Name', y='Worst Scenario Return',
-                            color='Worst Scenario Return',
-                            color_continuous_scale='RdYlGn',
-                            template=plotly_template,
-                            text_auto='.2%'
-                        )
-                        fig_comp.update_layout(yaxis_title="Expected Loss (%)", showlegend=False)
-                        st.plotly_chart(fig_comp, use_container_width=True, key="comparison_risk_rank")
-
-                    # 3. Individual Portfolio Deep-Dives
+                    if not comp_df.empty:
+                        st.dataframe(comp_df.style.format("{:.2%}"), use_container_width=True, key="Comparison Table*MULTI*0")
+                        fig = px.bar(comp_df, x='Portfolio Name', y='Worst Scenario Return', color='Worst Scenario Return', color_continuous_scale='RdYlGn', template=plotly_template)
+                        st.plotly_chart(fig, use_container_width=True, key="Risk Ranking*MULTI*1")
+                    # Deep‑dive sections for each portfolio
                     st.divider()
-                    st.markdown("### Individual Portfolio Analysis Details")
-                    for i, results in enumerate(results_list):
-                        p_name = Path(results["name"]).stem
-                        with st.expander(f"🔍 Deep-Dive: {p_name}", expanded=False, key=f"expander_{p_name}_{i}"):
-                            i_kpi1, i_kpi2, i_kpi3 = st.columns(3)
+                    st.subheader("Individual Portfolio Deep‑Dives")
+                    for i, res in enumerate(results_list):
+                        p_name = Path(res["name"]).stem
+                        with st.expander(f"🔍 Deep‑Dive: {p_name}", expanded=False, key=f"Expander*{p_name}*{i}"):
+                            k1, k2, k3 = st.columns(3)
+                            scen = res['scenario_pnl']
+                            worst_name = min(scen.keys(), key=lambda k: scen[k]['portfolio_return'])
+                            worst = scen[worst_name]
+                            k1.metric("Worst Case", safe_format(worst.get('portfolio_return'), fmt="{:.2f}%"), help=worst_name, key=f"Worst Case*{p_name}*{i}")
+                            k2.metric("VaR (95%)", safe_format(res['risk_metrics'].get('var_percent'), fmt="{:.2f}%"), key=f"VaR*{p_name}*{i}")
+                            k3.metric("Max Drawdown", safe_format(res['risk_metrics'].get('max_historical_drawdown'), fmt="{:.2f}%"), key=f"Max Drawdown*{p_name}*{i}")
+                            plot_df = pd.DataFrame([{'Scenario': n, 'Return': d['portfolio_return']} for n, d in scen.items()])
+                            fig = px.bar(plot_df, x='Scenario', y='Return', color='Return', color_continuous_scale='RdYlGn', template=plotly_template)
+                            st.plotly_chart(fig, use_container_width=True, key=f"Deep Dive Chart*{p_name}*{i}")
 
-                            i_scenario_data = results['scenario_pnl']
-                            i_worst_scen_name = min(i_scenario_data.keys(), key=lambda k: i_scenario_data[k]['portfolio_return'])
-                            i_worst_scen = i_scenario_data[i_worst_scen_name]
-
-                            # Defensive formatting for deep‑dive KPIs
-                            worst_case_str = safe_format(i_worst_scen['portfolio_return'] * 100, fmt="{:.2f}%")
-                            var_str = safe_format(results['risk_metrics'].get('var_percent', 0) * 100, fmt="{:.2f}%")
-                            dd_str = safe_format(results['risk_metrics'].get('max_historical_drawdown', 0) * 100, fmt="{:.2f}%")
-
-                            i_kpi1.metric("Worst Case", worst_case_str, help=i_worst_scen_name, key=f"dd_kpi1_{p_name}_{i}")
-                            i_kpi2.metric("VaR (95%)", var_str, key=f"dd_kpi2_{p_name}_{i}")
-                            i_kpi3.metric("Max Drawdown", dd_str, key=f"dd_kpi3_{p_name}_{i}")                            
-                            # Simple Viz for the expander
-                            i_plot_df = pd.DataFrame([
-                                {'Scenario': n, 'Return': d['portfolio_return']} 
-                                for n, d in i_scenario_data.items()
-                            ]).sort_values(by='Return')
-                            
-                            fig_i = px.bar(
-                                i_plot_df, x='Scenario', y='Return', 
-                                color='Return', color_continuous_scale='RdYlGn',
-                                template=plotly_template
-                            )
-                            fig_i.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
-                            st.plotly_chart(fig_i, use_container_width=True, key=f"dd_chart_{p_name}_{i}")
-
-                # 5. Download Unified Report
-                st.divider()
-                st.markdown("### Institutional Reports")
-                
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                report_name = f"risk_report_{timestamp}.xlsx"
-                report_path = os.path.join(config.outputs.results_dir, report_name)
-                
-                config.outputs.excel_export.file_name = report_name
-                config.outputs.excel_export.timestamp = False
-                
-                report_gen = ReportGenerator(config.outputs)
-                
-                # Use the first portfolio's results as the primary master_res
-                master_res = results_list[0].copy()
-                master_res['shocks'] = shocks
-                
-                report_gen.export_unified_report(
-                    master_res, 
-                    comp_df=comparer.compare_portfolios() if mode == "comparison" else None,
-                    bt_df=bt_data[0] if bt_data else None, 
-                    bt_metrics=bt_data[1] if bt_data else None
-                )
-                
-                with open(report_path, "rb") as f:
-                    st.download_button(
-                        label="Download High-Fidelity Excel Dashboard",
-                        data=f,
-                        file_name=report_name,
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True
-                    )
-                    
-        # Clean up temp files
-        for tmp_path in locals().get('temp_files', []):
-            try:
-                os.unlink(tmp_path)
-            except:
-                pass
+                # Cleanup
+                for tmp_path in temp_files:
+                    if os.path.exists(tmp_path): os.unlink(tmp_path)
 
     else:
         st.info("Please upload a portfolio CSV file to begin analysis.")
-        
-        # Sample Visual Preview
         st.divider()
         st.markdown("### Dashboard Preview")
         st.image("https://images.unsplash.com/photo-1611974717482-58284396e8c7?q=80&w=2070&auto=format&fit=crop", caption="Professional Risk Intelligence Visualization")
