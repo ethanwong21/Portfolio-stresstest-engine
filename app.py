@@ -8,6 +8,30 @@ import copy
 from pathlib import Path
 from datetime import datetime
 
+# Helper to safely format numeric KPI values
+def safe_format(value, fmt="{:.2f}%"):
+    """Return a formatted string for a numeric value or "N/A" if invalid.
+    Handles None, NaN, empty Series, or non‑numeric types.
+    """
+    try:
+        # Convert pandas Series to scalar if length 1
+        if isinstance(value, pd.Series):
+            if len(value) == 1:
+                value = value.iloc[0]
+            else:
+                return "N/A"
+        # Handle None
+        if value is None:
+            return "N/A"
+        # Convert to float
+        val = float(value)
+        # Check for NaN
+        if pd.isna(val):
+            return "N/A"
+        return fmt.format(val)
+    except Exception:
+        return "N/A"
+
 from utils.config import load_config
 from data.portfolio import PortfolioLoader
 from data.market_data import MarketDataLoader
@@ -131,10 +155,15 @@ def main():
                         tmp_path = tmp.name
                         temp_files.append(tmp_path)
                     
-                    # Run Analysis with independent config
-                    res = run_portfolio_analysis(
-                        tmp_path, local_config, m_loader, f_rets, shocks, logger
-                    )
+                    # Run Analysis with independent config – protect against failures
+                    try:
+                        res = run_portfolio_analysis(
+                            tmp_path, local_config, m_loader, f_rets, shocks, logger
+                        )
+                    except Exception as e:
+                        st.error(f"Error processing portfolio {uploaded_file.name}: {e}")
+                        logger.error(f"Error processing portfolio {uploaded_file.name}: {e}")
+                        continue
                     
                     # Prevent result object overwriting
                     p_res = res.copy()
@@ -181,19 +210,30 @@ def main():
                     # 1. KPI Strip
                     st.divider()
                     kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-                    
+
                     scenario_data = results['scenario_pnl']
                     worst_scen_name = min(scenario_data.keys(), key=lambda k: scenario_data[k]['portfolio_return'])
                     worst_scen = scenario_data[worst_scen_name]
-                    
+
                     total_val = results['portfolio'].get('market_value', pd.Series([0])).sum()
                     var_val = results['risk_metrics'].get('var_percent', 0)
                     max_dd = results['risk_metrics'].get('max_historical_drawdown', 0)
-                    
-                    kpi1.metric("Maximum Drawdown", f"{max_dd*100:.2f}%", key="kpi_max_dd")
-                    kpi2.metric("Portfolio VaR (95%)", f"{var_val*100:.2f}%", key="kpi_var")
-                    kpi3.metric("Worst Scenario Return", f"{worst_scen['portfolio_return']*100:.2f}%", help=worst_scen_name, key="kpi_worst_scen")
-                    kpi4.metric("Total Portfolio Value", f"${total_val:,.0f}", key="kpi_total_val")
+
+                    # Debug logging for KPI values
+                    st.sidebar.info(f"[DEBUG] Portfolio: {p_name} | max_dd raw: {max_dd} ({type(max_dd)})")
+                    st.sidebar.info(f"[DEBUG] Portfolio: {p_name} | var_val raw: {var_val} ({type(var_val)})")
+
+                    # Safe formatting
+                    max_dd_str = safe_format(max_dd * 100, fmt="{:.2f}%")
+                    var_val_str = safe_format(var_val * 100, fmt="{:.2f}%")
+                    worst_ret_str = safe_format(worst_scen['portfolio_return'] * 100, fmt="{:.2f}%")
+                    total_val_str = f"${total_val:,.0f}" if pd.notna(total_val) else "N/A"
+
+                    # Unique keys using portfolio name
+                    kpi1.metric("Maximum Drawdown", max_dd_str, key=f"kpi_max_dd_{p_name}")
+                    kpi2.metric("Portfolio VaR (95%)", var_val_str, key=f"kpi_var_{p_name}")
+                    kpi3.metric("Worst Scenario Return", worst_ret_str, help=worst_scen_name, key=f"kpi_worst_scen_{p_name}")
+                    kpi4.metric("Total Portfolio Value", total_val_str, key=f"kpi_total_val_{p_name}")
                     
                     # 2. Charts Row
                     c1, c2 = st.columns([2, 1])
@@ -302,17 +342,21 @@ def main():
                     st.markdown("### Individual Portfolio Analysis Details")
                     for i, results in enumerate(results_list):
                         p_name = Path(results["name"]).stem
-                        with st.expander(f"🔍 Deep-Dive: {p_name}", expanded=False, key=f"expander_{i}"):
+                        with st.expander(f"🔍 Deep-Dive: {p_name}", expanded=False, key=f"expander_{p_name}_{i}"):
                             i_kpi1, i_kpi2, i_kpi3 = st.columns(3)
-                            
+
                             i_scenario_data = results['scenario_pnl']
                             i_worst_scen_name = min(i_scenario_data.keys(), key=lambda k: i_scenario_data[k]['portfolio_return'])
                             i_worst_scen = i_scenario_data[i_worst_scen_name]
-                            
-                            i_kpi1.metric("Worst Case", f"{i_worst_scen['portfolio_return']*100:.2f}%", help=i_worst_scen_name, key=f"dd_kpi1_{i}")
-                            i_kpi2.metric("VaR (95%)", f"{results['risk_metrics'].get('var_percent', 0)*100:.2f}%", key=f"dd_kpi2_{i}")
-                            i_kpi3.metric("Max Drawdown", f"{results['risk_metrics'].get('max_historical_drawdown', 0)*100:.2f}%", key=f"dd_kpi3_{i}")
-                            
+
+                            # Defensive formatting for deep‑dive KPIs
+                            worst_case_str = safe_format(i_worst_scen['portfolio_return'] * 100, fmt="{:.2f}%")
+                            var_str = safe_format(results['risk_metrics'].get('var_percent', 0) * 100, fmt="{:.2f}%")
+                            dd_str = safe_format(results['risk_metrics'].get('max_historical_drawdown', 0) * 100, fmt="{:.2f}%")
+
+                            i_kpi1.metric("Worst Case", worst_case_str, help=i_worst_scen_name, key=f"dd_kpi1_{p_name}_{i}")
+                            i_kpi2.metric("VaR (95%)", var_str, key=f"dd_kpi2_{p_name}_{i}")
+                            i_kpi3.metric("Max Drawdown", dd_str, key=f"dd_kpi3_{p_name}_{i}")                            
                             # Simple Viz for the expander
                             i_plot_df = pd.DataFrame([
                                 {'Scenario': n, 'Return': d['portfolio_return']} 
@@ -325,7 +369,7 @@ def main():
                                 template=plotly_template
                             )
                             fig_i.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10), showlegend=False)
-                            st.plotly_chart(fig_i, use_container_width=True, key=f"dd_chart_{i}")
+                            st.plotly_chart(fig_i, use_container_width=True, key=f"dd_chart_{p_name}_{i}")
 
                 # 5. Download Unified Report
                 st.divider()
