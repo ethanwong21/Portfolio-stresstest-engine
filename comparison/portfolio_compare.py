@@ -27,7 +27,7 @@ class PortfolioComparer:
     def compare_portfolios(self) -> pd.DataFrame:
         """
         Aggregates stored portfolios, extracting high-level comparative metrics.
-        Returns a sorted pandas Dataframe.
+        Returns a sorted pandas Dataframe with Resilience Score and Rank.
         """
         comparison_data = []
         for name, data in self.results.items():
@@ -52,14 +52,30 @@ class PortfolioComparer:
             })
             
         df = pd.DataFrame(comparison_data)
-        
-        # Sort logic
-        sort_col = 'Worst Scenario Return'
-        if self.config and getattr(self.config, 'sorting_metric', None) == 'worst_scenario_return':
-            sort_col = 'Worst Scenario Return'
+        if df.empty:
+            return df
             
-        if not df.empty:
-            df = df.sort_values(by=sort_col, ascending=True).reset_index(drop=True)
+        # 1. Normalize metrics across portfolios (Min-Max)
+        # All inputs (worst return, max ddraw, var) are typically negative.
+        # Higher values (closer to zero) are better.
+        def normalize(series):
+            if series.max() == series.min():
+                return pd.Series(1.0, index=series.index)
+            return (series - series.min()) / (series.max() - series.min())
+
+        w_worst = normalize(df['Worst Scenario Return'])
+        w_dd = normalize(df['Max Drawdown'])
+        w_var = normalize(df['VaR'])
+        
+        # 2. Weighted Scoring (Resilience Score: 0-100)
+        # Weights: 50% Worst Case, 30% Max Drawdown, 20% VaR
+        df['Resilience Score'] = (w_worst * 0.5 + w_dd * 0.3 + w_var * 0.2) * 100
+        
+        # 3. Create Rank (1 = highest score)
+        df['Rank'] = df['Resilience Score'].rank(ascending=False, method='min').astype(int)
+        
+        # Sort by Rank (ascending)
+        df = df.sort_values(by='Rank', ascending=True).reset_index(drop=True)
             
         return df
 

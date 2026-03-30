@@ -178,10 +178,34 @@ def main():
                     try:
                         res = run_portfolio_analysis(tmp_path, local_config, m_loader, f_rets, shocks, logger)
                         p_res = res.copy()
-                        p_res["name"] = uploaded_file.name
+                        p_res["name"] = uploaded_files[0].name if num_ports == 1 else uploaded_file.name
+                        
+                        # Display Ingestion Warnings
+                        if res.get('ingestion_warnings'):
+                            with st.sidebar.expander(f"⚠️ {uploaded_file.name} Warnings"):
+                                for w in res['ingestion_warnings']:
+                                    st.write(f"- {w}")
+                        
+                        # Debug Output (Temporary)
+                        if exec_mode == "SINGLE":
+                            with st.expander(f"🛠️ Debug: {uploaded_files[0].name if num_ports == 1 else uploaded_file.name} Ingestion"):
+                                st.write("**Original Headers:**", res.get('original_cols'))
+                                st.write("**Cleaned Headers:**", res.get('cleaned_cols'))
+                                st.write("**Detected Mapping:**", res.get('detected_cols'))
+                                
+                                # Factor Exposures Debug
+                                if 'exposures' in res:
+                                    st.write("**Factor Exposures (Betas):**")
+                                    st.dataframe(res['exposures'])
+                                    if not res['exposures'].empty:
+                                        st.write(f"**Sample Beta ({res['exposures'].index[0]}):**", res['exposures'].iloc[0].to_dict())
+
+                                st.write("**Cleaned Data Preview:**")
+                                st.dataframe(res['portfolio'])
+
                         results_list.append(p_res)
                     except Exception as e:
-                        st.error(f"Error processing {uploaded_file.name}: {e}")
+                        st.error(f"Ingestion Failed for {uploaded_file.name}: {e}")
                         continue
 
                 # 4. Comparison & Reporting
@@ -267,28 +291,22 @@ def main():
                             if col in comp_df.columns:
                                 comp_df[col] = pd.to_numeric(comp_df[col], errors='coerce')
 
-                        # 2. Implementation: Multi-Portfolio Ranking (NEW)
-                        def normalize(series, reverse=False):
-                            s_min, s_max = series.min(), series.max()
-                            if s_min == s_max: return series.map(lambda x: 1.0)
-                            norm = (series - s_min) / (s_max - s_min)
-                            return 1.0 - norm if reverse else norm
-
-                        # Weights: Worst Case (40%), Max DD (40%), VaR (20%)
-                        w_return = normalize(comp_df['Worst Scenario Return'])
-                        w_dd = normalize(comp_df['Max Drawdown']) # Higher (less negative) is better
-                        w_var = normalize(comp_df['VaR']) # Higher (less negative) is better
-                        
-                        comp_df['Risk Score'] = (w_return * 0.4 + w_dd * 0.4 + w_var * 0.2) * 100
-                        comp_df['Rank'] = comp_df['Risk Score'].rank(ascending=False, method='min').astype(int)
-                        comp_df = comp_df.sort_values('Rank')
+                        # 2. Support for Resilience Scoring
+                        # The Resilience Score (0-100) and Rank are already calculated in comparer.compare_portfolios()
+                        # Weights: 50% Worst Case, 30% Max Drawdown, 20% VaR
 
                         # 3. Decision Output
                         st.markdown("### Decision Summary")
                         d_col1, d_col2, d_col3 = st.columns(3)
+                        
+                        # Best overall is the one with Rank 1 (highest Resilience Score)
                         best_p = comp_df.iloc[0]['Portfolio Name']
-                        resilient_p = comp_df.loc[comp_df['Max Drawdown'].idxmax(), 'Portfolio Name']
-                        risk_p = comp_df.loc[comp_df['VaR'].idxmin(), 'Portfolio Name']
+                        
+                        # Most resilient is the one with the highest Resilience Score
+                        resilient_p = comp_df.loc[comp_df['Resilience Score'].idxmax(), 'Portfolio Name']
+                        
+                        # Highest risk is the one with the lowest Resilience Score
+                        risk_p = comp_df.loc[comp_df['Resilience Score'].idxmin(), 'Portfolio Name']
 
                         with d_col1:
                             st.success(f"🏆 **Best Overall**: {best_p}")
@@ -298,14 +316,14 @@ def main():
                             st.warning(f"⚠️ **Highest Risk**: {risk_p}")
 
                         # 4. Updated Comparison Table
-                        st.markdown("### Risk Comparison Details")
+                        st.markdown("### Performance & Resilience Comparison")
                         format_dict = {col: "{:.2%}" for col in numeric_cols if col in comp_df.columns}
-                        format_dict['Risk Score'] = "{:.1f}"
+                        format_dict['Resilience Score'] = "{:.1f}"
                         if 'Total Value' in comp_df.columns:
                             format_dict['Total Value'] = "${:,.0f}"
 
                         st.dataframe(
-                            comp_df.style.format(format_dict, na_rep="N/A").background_gradient(subset=['Risk Score'], cmap='RdYlGn'),
+                            comp_df.style.format(format_dict, na_rep="N/A").background_gradient(subset=['Resilience Score'], cmap='RdYlGn'),
                             use_container_width=True, 
                             key="Comparison Table*MULTI*0"
                         )

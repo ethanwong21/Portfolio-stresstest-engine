@@ -77,12 +77,13 @@ def run_portfolio_analysis(portfolio_path, config, market_loader, factor_returns
     loader = PortfolioLoader(config.portfolio)
     p_df = loader.load_portfolio()
     
-    # Validate Columns
-    req_cols = config.portfolio.columns.values()
-    missing = [c for c in req_cols if c not in p_df.columns and c != "Ticker"] # Ticker can be index
-    if missing and not (p_df.index.name == "Ticker" or "ticker" in p_df.columns.str.lower()):
-        logger.error(f"Portfolio {portfolio_path} is missing required columns: {missing}")
-        sys.exit(1)
+    # Capture any ingestion warnings
+    warnings = getattr(loader, 'warnings', [])
+    detected_cols = getattr(loader, 'detected_cols', {})
+    original_cols = getattr(loader, 'original_cols', [])
+    cleaned_cols = getattr(loader, 'cleaned_cols', [])
+
+    # Fetch Returns
 
     # Fetch Returns
     tickers = p_df['ticker'].tolist() if 'ticker' in p_df.columns else p_df.index.tolist()
@@ -94,8 +95,15 @@ def run_portfolio_analysis(portfolio_path, config, market_loader, factor_returns
 
     # Modeling
     f_engine = FactorEngine(config.model_parameters)
-    exposures = f_engine.compute_exposures(asset_returns, factor_returns)
     
+    # Use deterministic beta assignment for institutional stress testing
+    exposures = f_engine.assign_betas(p_df)
+    
+    # Debug logging for explicit data flow
+    logger.info(f"Generated factor exposures for {len(exposures)} assets.")
+    if not exposures.empty:
+        logger.info(f"Sample exposure ({exposures.index[0]}): {exposures.iloc[0].to_dict()}")
+
     impact_model = ScenarioImpactModel(exposures)
     expected_rets = {name: impact_model.propagate_shocks(vec) for name, vec in shocks.items()}
     
@@ -107,7 +115,11 @@ def run_portfolio_analysis(portfolio_path, config, market_loader, factor_returns
         'scenario_pnl': scenario_pnl,
         'risk_metrics': risk_metrics,
         'exposures': exposures,
-        'portfolio': risk_engine.portfolio
+        'portfolio': risk_engine.portfolio,
+        'ingestion_warnings': warnings,
+        'detected_cols': detected_cols,
+        'original_cols': original_cols,
+        'cleaned_cols': cleaned_cols
     }
 
 def parse_arguments():
