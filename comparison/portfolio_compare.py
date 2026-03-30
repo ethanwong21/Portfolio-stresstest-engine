@@ -53,13 +53,19 @@ class PortfolioComparer:
             
         df = pd.DataFrame(comparison_data)
         if df.empty:
+            df['Resilience Score'] = []
+            df['Rank'] = []
             return df
+            
+        # Initialize defaults to prevent KeyError
+        df['Resilience Score'] = 0.0
+        df['Rank'] = 0
             
         # 1. Normalize metrics across portfolios (Min-Max)
         # All inputs (worst return, max ddraw, var) are typically negative.
         # Higher values (closer to zero) are better.
         def normalize(series):
-            if series.max() == series.min():
+            if series.empty or series.max() == series.min():
                 return pd.Series(1.0, index=series.index)
             return (series - series.min()) / (series.max() - series.min())
 

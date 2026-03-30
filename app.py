@@ -291,8 +291,22 @@ def main():
             comp_df = comparer.compare_portfolios()
             
             if not comp_df.empty:
+                # DEBUG (Temporary) - verify columns exist
+                st.sidebar.write("Columns:", comp_df.columns.tolist())
+                
+                # SAFETY CHECK: Ensure Resilience Score exists before access
+                if "Resilience Score" not in comp_df.columns:
+                    st.error("Resilience Score not computed. Please check simulation input.")
+                    st.write(comp_df)
+                    return
+
                 st.markdown("### Decision Summary & Resilience Ranking")
                 d1, d2, d3 = st.columns(3)
+                
+                # Ensure numeric for calculations
+                comp_df["Resilience Score"] = pd.to_numeric(comp_df["Resilience Score"], errors='coerce')
+                
+                # Resilience Ranks
                 best_p = comp_df.iloc[0]['Portfolio Name']
                 resilient_p = comp_df.loc[comp_df['Resilience Score'].idxmax(), 'Portfolio Name']
                 risk_p = comp_df.loc[comp_df['Resilience Score'].idxmin(), 'Portfolio Name']
