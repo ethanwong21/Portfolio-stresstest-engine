@@ -1,6 +1,18 @@
 # Factor-Based Portfolio Stress Testing & Risk Analytics Engine
 
 A Python-based portfolio risk analysis platform that simulates macroeconomic stress scenarios, evaluates portfolio resilience, and supports both **single-portfolio deep analysis** and **multi-portfolio comparison** using a factor-driven framework.
+---
+## LIVE DEMO:
+
+[Try the app](https://ethanwong-portfolio-stresstest-tool-app-575757.streamlit.app/)
+
+## DEMO WALKTHORUGH:
+
+<p align="center">
+  <img src="portfoliotest_demo.gif" width="700"/>
+</p>
+
+Simulate macro shocks, stress test portfolios, and rank strategies by resilience in real time.
 
 ---
 
