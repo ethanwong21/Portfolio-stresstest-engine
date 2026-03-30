@@ -67,3 +67,14 @@ class FactorEngine:
             
         exposures_df = pd.DataFrame.from_dict(exposures, orient='index')
         return exposures_df
+
+    def compute_exposures(self, asset_returns, factor_returns):
+        """
+        Computes the factor exposures for a set of assets.
+        This method is required by the rolling_backtest module.
+        """
+        exposures = {}
+        for ticker in asset_returns.columns:
+            exposures[ticker] = self.get_asset_exposures(ticker)
+            
+        return pd.DataFrame.from_dict(exposures, orient="index")
