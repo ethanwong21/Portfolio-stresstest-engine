@@ -1,85 +1,199 @@
-# Portfolio Stress Testing & Risk Intelligence Engine
+# Factor-Based Portfolio Stress Testing & Risk Analytics Engine
 
-A fully configurable, macro-driven portfolio risk analysis system built in Python. This engine evaluates how a portfolio performs under user-defined macroeconomic shock scenarios and provides insights into asset-level risk attribution. It operates without hardcoded values, relying entirely on a declarative YAML configuration and external data sources for maximum flexibility.
+A Python-based portfolio risk analysis platform that simulates macroeconomic stress scenarios, evaluates portfolio resilience, and supports both **single-portfolio deep analysis** and **multi-portfolio comparison** using a factor-driven framework.
 
-## Features
+---
 
-- **Dynamic Portfolio Ingestion**: Load any portfolio structure via CSV, dynamically mapping columns (e.g., ticker, weight, asset class) via configuration.
-- **Resilient Market Data**: Fetches historical market and benchmark data using `yfinance`. Automatically falls back to multi-variate continuous Geometric Brownian Motion simulation if API rate limits or database locks occur.
-- **Factor Exposure Engine**: Computes dynamic, rolling ordinary least squares (OLS) regression betas to map asset sensitivities against custom macro factors (e.g., Equity, Rates, Credit, Inflation).
-- **Scenario Impact Modeling**: Propagates defined macro shocks seamlessly through the exposure matrix to predict hypothetical asset returns and portfolio drawdowns.
-- **Risk Aggregation**: Calculates historical Value-at-Risk (VaR) and Maximum Drawdowns based on historical arrays and custom confidence intervals.
-- **Institutional Excel Reporting**: Transforms all outputs into a single, professional Microsoft Excel dashboard (`xlsxwriter`). Features comprehensive KPI strips, ranked scenario summaries, conditional formatting, and embedded dynamic charts (Pie/Bar) natively in the spreadsheet.
+## Overview
 
-## Project Structure
+This project models how portfolios behave under different macroeconomic environments by applying **factor-based shocks** (equity, interest rates, inflation, commodities) to asset-level exposures.
 
-```text
-Portfolio-stresstest-tool/
-├── config.yaml               # Master configuration for all engine parameters
-├── main.py                   # Engine entry point and orchestration pipeline
-├── sample_portfolio.csv      # Sample portfolio ingestion file
-├── requirements.txt          # Python package dependencies
-├── data/
-│   ├── market_data.py        # yFinance integration and simulation fallback generator
-│   └── portfolio.py          # Portfolio CSV parser and validator
-├── models/
-│   ├── factor_engine.py      # Rolling OLS regression exposure calculator
-│   ├── risk_engine.py        # Portfolio-level aggregation and VaR metrics
-│   └── scenario_impact.py    # Macro shock propagation math
-├── outputs/                  
-│   └── reporting.py          # Excel dashboard and KPI summary generator
-├── scenarios/
-│   └── generator.py          # Scenario dictionary builder from YAML
-└── utils/
-    └── config.py             # Pydantic configuration validation logic
-```
+It is designed to replicate how asset managers and risk teams:
+
+* Analyze individual portfolios in depth
+* Compare multiple strategies
+* Make allocation decisions under uncertainty
+
+---
+
+## Core Capabilities
+
+### Single Portfolio Analysis (Deep Dive Mode)
+
+Designed for detailed portfolio diagnostics.
+
+* Dynamic scenario stress testing
+* Rolling backtesting vs realized performance
+* Deep dive into portfolio behavior under stress
+* Identification of key risk drivers
+
+---
+
+### Multi-Portfolio Comparison (Decision Mode)
+
+Designed for portfolio selection and allocation.
+
+* Scenario-based comparison across portfolios
+* Relative performance under macro shocks
+* Ranking using Resilience Score
+* Identification of most resilient and highest-risk portfolios
+
+---
+
+## Key Features
+
+### Factor-Based Stress Testing
+
+* Models asset sensitivity to:
+
+  * Equity markets
+  * Interest rates
+  * Inflation
+  * Commodities
+* Applies shocks at the **factor level**, enabling differentiated asset behavior
+
+---
+
+### Scenario Analysis
+
+Predefined macro scenarios include:
+
+* Equity Market Crash
+* Yield Curve Shock
+* Inflation Spike
+* Stagflation
+
+Each scenario is mapped to factor movements and propagated through asset-level sensitivities.
+
+---
+
+### Rolling Backtesting (Single Portfolio)
+
+* Compares model outputs to historical outcomes
+* Evaluates model accuracy and behavior over time
+* Provides additional validation layer for stress scenarios
+
+---
+
+### Resilience Scoring System
+
+* Ranks portfolios using a weighted scoring model based on:
+
+  * Worst-case return
+  * Maximum drawdown
+  * Value at Risk (VaR)
+* Produces a **Resilience Score (0–100)**
+* Higher score = more resilient portfolio under stress
+
+---
+
+### Robust Data Ingestion Pipeline
+
+* Handles messy real-world CSV inputs
+* Automatically:
+
+  * Detects column names (Ticker, Weight, etc.)
+  * Cleans formatting inconsistencies
+  * Normalizes weights
+* Ensures reliable processing without strict input requirements
+
+---
+
+## How It Works
+
+1. Upload one or more portfolio CSV files
+2. System automatically determines execution mode:
+
+   * 1 portfolio → Single Analysis Mode
+   * Multiple portfolios → Comparison Mode
+3. Assets are mapped to factor sensitivities (betas)
+4. Scenarios are translated into factor shocks
+5. Asset-level returns are computed
+6. Portfolio results are aggregated and visualized
+7. Portfolios are ranked (in multi mode) using Resilience Score
+
+---
+
+## Example Use Cases
+
+* Analyze a single portfolio’s sensitivity to macro shocks
+* Backtest portfolio behavior against historical data
+* Compare growth vs defensive strategies
+* Identify the most resilient allocation under stress
+* Support investment decision-making and portfolio construction
+
+---
+
+## Tech Stack
+
+* Python
+* Streamlit
+* Pandas / NumPy
+* Plotly
+
+---
+
+## Input Format
+
+Supports flexible CSV formats, including:
+
+* Ticker / Symbol / Asset
+* Weight / Allocation / %
+
+Example:
+
+Ticker,Weight
+AAPL,0.25
+MSFT,0.25
+
+---
+
+## Future Improvements & Roadmap
+
+### Data & Model Enhancements
+
+* Regression-based beta estimation
+* Historical scenario calibration (e.g., 2008, COVID)
+
+---
+
+### Risk Modeling & Analytics
+
+* Enhanced Resilience Score (downside penalties, full distribution)
+* Monte Carlo simulation for tail risk
+
+---
+
+### Portfolio Intelligence Features
+
+* Factor exposure dashboard
+* Sector & asset classification engine
+
+---
+
+### User Interaction & Flexibility
+
+* Custom scenario builder
+* Portfolio optimization module
+
+---
+
+### Platform-Level Enhancements
+
+* Live data integration
+* Portfolio tracking & dashboarding
+
+---
+
+## Goal
+
+To build a **practical portfolio risk and decision engine** that combines macroeconomic intuition with quantitative modeling to support real-world investment decisions.
+
+---
+
+## Author
+
+Ethan Wong
+Finance, Accounting & Economics student @Purdue Univeristy | Interested in Markets and Tech
 
 
-## Usage
-
-1. **Configure the Engine:**
-   Modify `config.yaml` to set your desired:
-   - File input paths (`sample_portfolio.csv`).
-   - Market factors (e.g., `^GSPC` for Equity, `^IRX` for Rates).
-   - Rolling windows and VaR confidence levels.
-   - Stress test shock scenarios (e.g., `Equity Crash`, `Yield Curve Shock`).
-   - Output settings (Enable Excel dashboard generation).
-
-2. **Run the Stress Test:**
-   ```bash
-   python main.py --config config.yaml
-   ```
-
-3. **View the Results:**
-   Navigate to the `outputs/` directory to open your generated institutional dashboard (`stress_test_dashboard.xlsx`).
-
-## Configuration (`config.yaml`) Example
-
-The system is entirely driven by the YAML configuration. Here is an example of a shock scenario definition:
-
-```yaml
-scenarios:
-  - name: "Equity Market Crash"
-    shocks:
-      equity: -0.20
-      rates: -0.01  # Flight to safety (rates down 100bps)
-      credit: 0.05
-      inflation: -0.01
-
-  - name: "Stagflation"
-    shocks:
-      equity: -0.15
-      rates: 0.02
-      credit: 0.03
-      inflation: 0.04
-```
-
-## Dependencies
-- `pandas` - Data manipulation
-- `numpy` - Vectorized calculations & simulations
-- `yfinance` - Historical market data
-- `scikit-learn` - OLS Regression
-- `PyYAML` - Configuration parsing
-- `pydantic` - Settings validation
-- `matplotlib` & `seaborn` - Analytics computations
-- `xlsxwriter` - Professional Excel formatting
