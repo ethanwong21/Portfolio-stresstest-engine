@@ -2,10 +2,9 @@
 
 A Python-based portfolio risk analysis platform that simulates macroeconomic stress scenarios, evaluates portfolio resilience, and supports both **single-portfolio deep analysis** and **multi-portfolio comparison** using a factor-driven framework.
 ---
-## LIVE DEMO:
+## LIVE APP:
 
-[Try the app](https://ethanwong-portfolio-stresstest-tool-app-575757.streamlit.app/)
-
+[Try the app](https://portfolio-stresstest-engine-2vhuqtthzbubr75bg82eda.streamlit.app)
 ## DEMO WALKTHORUGH:
 
 <p align="center">
